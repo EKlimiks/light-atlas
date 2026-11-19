@@ -1,0 +1,16 @@
+{
+  "id": "./",
+  "name": "Световой атлас",
+  "short_name": "Световой атлас",
+  "description": "Зажги маяки архипелага. Двенадцать мобильных головоломок об оптике.",
+  "lang": "ru",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#10152b",
+  "theme_color": "#10152b",
+  "icons": [
+    { "src": "art/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "art/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
