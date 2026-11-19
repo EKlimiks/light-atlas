@@ -2,6 +2,7 @@
 
 const { levels, chapters } = globalThis.AtlasLevels;
 const { trace, solve, colors, colorValues } = globalThis.AtlasOptics;
+const { modeList } = globalThis.AtlasArcade;
 const main = document.getElementById("game");
 const dialog = document.getElementById("dialog");
 const dialogContent = document.getElementById("dialog-content");
@@ -28,6 +29,19 @@ function load() {
 
 const data = load();
 data.drafts ??= {};
+data.arcade ??= {};
+const arcade = AtlasArcade.create(data.arcade, { save, render: () => render(false) });
+const tiers = [
+  { name: "Обучение", description: "Знакомство с каждым прибором. Минимум 1 ход.", tone: "mint", max: 1 },
+  { name: "Основной маршрут", description: "Сочетай приборы. Минимум 2–3 хода.", tone: "amber", max: 3 },
+  { name: "Сложные", description: "Проверяй несколько путей. Минимум 4–5 ходов.", tone: "rose", max: 5 },
+  { name: "Экспертные", description: "Длинные маршруты и цепочки. Минимум 6 ходов.", tone: "sky", max: Infinity },
+];
+const difficulty = levels.map((level, i) => {
+  const moves = solve(level, level.initial).distance;
+  return { i, moves, tier: tiers.findIndex((tier) => moves <= tier.max) };
+}).sort((a, b) => a.moves - b.moves || a.i - b.i);
+const campaignOrder = [0, ...difficulty.filter((entry) => entry.tier > 0).map((entry) => entry.i)];
 let route = "home";
 let levelIndex = 0;
 let level;
@@ -70,8 +84,7 @@ function completionCount() {
 }
 
 function nextUnlit() {
-  const i = levels.findIndex((_, n) => !data.records[n]);
-  return i === -1 ? 0 : i;
+  return campaignOrder.find((i) => !data.records[i]) ?? difficulty.find(({ i }) => !data.records[i])?.i ?? 0;
 }
 
 function heading(title, description = "", kicker = "") {
@@ -81,28 +94,37 @@ function heading(title, description = "", kicker = "") {
 function home() {
   const count = completionCount();
   const last = data.drafts[data.last] && !data.records[data.last] ? data.last : nextUnlit();
-  return `<section class="home">
+  const modes = [
+    { id: "map", name: "Маяки", verb: "Проложи луч через приборы", tone: "amber", mark: "◈", count, total: levels.length },
+    ...modeList.map((mode) => ({ ...mode, count: arcade.count(mode.id), total: mode.lessons.length })),
+  ];
+  return `<section class="home hub-cover">
     <div class="home-art" aria-hidden="true"></div>
     <div class="home-copy">
-      <p class="eyebrow">Мобильная головоломка об оптике</p>
+      <p class="eyebrow">Четыре игры о свете</p>
       <h1 id="view-title" tabindex="-1">Световой<br><em>атлас</em></h1>
-      <p class="home-story">Маяки архипелага погасли. Поворачивай зеркала, смешивай свет и зажги их снова.</p>
-      <div class="actions"><a class="action primary" href="#${count === levels.length ? "map" : `play-${last + 1}`}">${count === levels.length ? "Карта маяков" : count || data.drafts[last]?.history.length ? "Продолжить экспедицию" : "Зажечь первый маяк"} <span aria-hidden="true">↗</span></a>${count === levels.length ? "" : '<a class="action quiet" href="#map">Карта</a>'}</div>
-      <div class="home-count"><span class="little-light" aria-hidden="true"></span> ${count ? `Зажжено ${count} из ${levels.length}` : `${levels.length} головоломок · ${chapters.length} глав`}</div>
-      <a class="new-route" href="#new">Новый маршрут: ещё пять глав</a>
+      <div class="actions"><a class="action primary" href="#${count === levels.length ? "map" : `play-${last + 1}`}">${count === levels.length ? "Все маяки" : count || data.drafts[last]?.history.length ? "Продолжить маяки" : "Зажечь первый маяк"}</a></div>
     </div>
-  </section>`;
+  </section>
+  <section class="hub-games" aria-labelledby="modes-heading"><div class="hub-heading"><h2 id="modes-heading">Выбери игру</h2><span>${modes.reduce((sum, mode) => sum + mode.total, 0)} заданий</span></div>
+    <div class="mode-list">${modes.map((mode) => `<a class="mode-card ${mode.tone}" href="#${mode.id}"><span class="mode-mark mode-${mode.id}" aria-hidden="true">${mode.mark}</span><div><h3>${mode.name}</h3><p>${mode.verb}</p></div><span class="mode-count">${mode.count ? `${mode.count} / ` : ""}${mode.total}</span></a>`).join("")}</div>
+  </section>
+  <div class="hub-links"><a href="#challenge">Сложные маяки</a><a href="#lab">Свободная лаборатория цвета</a></div>`;
 }
 
-function mapPage() {
-  const sections = chapters.map((chapter, chapterIndex) => `<section class="chapter ${chapter.color}">
-      <div class="chapter-head"><span class="chapter-mark" aria-hidden="true">${chapter.mark}</span><div><h2>${chapter.name}</h2><p>${chapter.lesson}</p></div></div>
-      <ol>${levels.map((entry, i) => entry.chapter === chapterIndex ? `<li><a href="#play-${i + 1}" class="${data.records[i] ? "cleared" : ""}"><span class="map-number">${String(i + 1).padStart(2, "0")}</span><span>${entry.title}</span>${data.records[i] ? stars(data.records[i].stars) : '<span class="new-level" aria-hidden="true">·</span>'}</a></li>` : "").join("")}</ol>
-    </section>`);
-  return `${heading("Карта маяков", "Начни с берега или выбери любую главу.", `Зажжено ${completionCount()} из ${levels.length}`)}
-    <div class="chapters">${sections.slice(0, 4).join("")}</div>
-    <section class="new-chapters"><div class="map-section"><h2 id="new-islands" tabindex="-1">Новый маршрут</h2><p>Пять глав с новыми приборами.</p></div>
-    <div class="chapters">${sections.slice(4).join("")}</div></section>`;
+function mapPage(view) {
+  const advanced = view === "challenge", recent = view === "new";
+  const sections = tiers.map((tier, tierIndex) => {
+    const entries = difficulty.filter((entry) => entry.tier === tierIndex && (!recent || entry.i >= 12));
+    if (!entries.length || (advanced && tierIndex < 2)) return "";
+    return `<section class="chapter ${tier.tone}" id="tier-${tierIndex}">
+      <div class="chapter-head"><div><h2>${tier.name}</h2><p>${tier.description}</p></div></div>
+      <ol>${entries.map(({ i, moves }) => `<li><a href="#play-${i + 1}" class="${data.records[i] ? "cleared" : ""}"><span class="map-number">${String(i + 1).padStart(2, "0")}</span><span class="map-title">${levels[i].title}<small>${chapters[levels[i].chapter].lesson}</small></span>${data.records[i] ? stars(data.records[i].stars) : `<span class="map-number" aria-label="Минимум ${moves} ходов">${moves} х.</span>`}</a></li>`).join("")}</ol>
+    </section>`;
+  });
+  return `${heading(advanced ? "Сложные маяки" : recent ? "Новые маяки" : "Карта маяков", "Уровни собраны по минимальному числу ходов. Можно выбрать любой.", `Зажжено ${completionCount()} из ${levels.length}`)}
+    <nav class="map-tabs" aria-label="Виды уровней"><a class="action quiet" href="#map" ${!recent && !advanced ? 'aria-current="page"' : ""}>Все</a><a class="action quiet" href="#challenge" ${advanced ? 'aria-current="page"' : ""}>Сложные</a><a class="action quiet" href="#new" ${recent ? 'aria-current="page"' : ""}>Новые</a></nav>
+    <div class="chapters">${sections.join("")}</div>`;
 }
 
 function labPage() {
@@ -121,6 +143,7 @@ function aboutPage() {
   return `${heading("Об игре", "«Световой атлас» — познавательная игра о свете для телефона и компьютера.")}
     <div class="about">
       <h2>Как играть</h2><p>Коснись зеркала или делителя, чтобы повернуть деталь. Коснись фильтра, чтобы сменить цвет. Зажги все линзы светом нужного цвета. На новом маршруте можно переносить зеркала, поворачивать фонари, настраивать поляризаторы и открывать заслонки светом.</p>
+      <h2>Другие режимы</h2><p>В «Спектре» подбери свет для окон. В «Тенях» разложи фигуры по контуру. В «Сигналах» прочитай и отправь послания азбукой Морзе.</p>
       <h2>Игра без интернета</h2><p>После первой загрузки игра сохраняет файлы в браузере. На телефоне можно добавить её на главный экран через меню браузера. В Safari это «Поделиться», затем «На экран Домой». Прогресс хранится на устройстве.</p>
       <h2>Как участвовал ИИ</h2><p>Codex помог разработать игровой процесс, уровни и код. Иллюстрация обсерватории создана в ImageGen.</p>
       <h2>Материалы по оптике</h2><ul>
@@ -128,6 +151,8 @@ function aboutPage() {
         <li><a href="https://annex.exploratorium.edu/xref/exhibits/distilled_light.html">Exploratorium. Разделение и смешение цветов</a></li>
         <li><a href="https://www.jpl.nasa.gov/edu/resources/lesson-plan/the-science-of-color/">NASA JPL. Цвет и фильтры</a></li>
         <li><a href="https://openstax.org/books/university-physics-volume-3/pages/1-7-polarization">OpenStax. Поляризация</a></li>
+        <li><a href="https://annex.exploratorium.edu/xref/exhibits/colored_shadows.html">Exploratorium. Цветные тени</a></li>
+        <li><a href="https://www.itu.int/rec/R-REC-M.1677/en">ITU. Международная азбука Морзе</a></li>
       </ul>
     </div>`;
 }
@@ -157,8 +182,9 @@ function persistPuzzle() {
 
 function levelPage() {
   const chapter = chapters[level.chapter];
+  const entry = difficulty.find(({ i }) => i === levelIndex);
   return `<div class="level ${chapter.color}">
-    <div class="level-head"><a class="map-back" href="#map">‹ Карта</a><span class="level-part">${levelIndex + 1} / ${levels.length}</span></div>
+    <div class="level-head"><a class="map-back" href="#map">‹ Уровни</a><span class="level-part">${tiers[entry.tier].name} · №${levelIndex + 1}</span></div>
     ${heading(level.title, level.task, chapter.lesson)}
     <div class="play-layout">
       <section class="play-field" aria-label="Игровое поле">
@@ -369,10 +395,12 @@ function showWin() {
   finishing = false;
   if (route !== "play" || !result.won || dialog.open) return;
   const best = data.records[levelIndex];
-  const last = levelIndex === levels.length - 1;
   const all = completionCount() === levels.length;
-  const next = last ? (all ? "#map" : `#play-${nextUnlit() + 1}`) : `#play-${levelIndex + 2}`;
-  const nextLabel = last ? (all ? "Карта маяков" : "К следующему маяку") : "Дальше";
+  const order = campaignOrder.indexOf(levelIndex);
+  const following = order >= 0 ? campaignOrder.slice(order + 1).find((i) => !data.records[i]) : undefined;
+  const endOfChallenge = following === undefined && difficulty.find(({ i }) => i === levelIndex).tier >= 2;
+  const next = all ? "#map" : endOfChallenge ? "#challenge" : `#play-${(following ?? nextUnlit()) + 1}`;
+  const nextLabel = all ? "Карта маяков" : endOfChallenge ? "К сложным уровням" : "Следующий маяк";
   dialogContent.innerHTML = `<div class="win">
     <p class="eyebrow">${all ? "Экспедиция завершена" : chapters[level.chapter].name}</p>
     <h2 id="dialog-title">${all ? "Все маяки зажжены!" : "Маяк зажжён!"}</h2>
@@ -502,21 +530,21 @@ function render(moveFocus = true) {
   const hash = location.hash.slice(1);
   const choice = /^play-(\d+)$/.exec(hash);
   const index = choice ? Number(choice[1]) - 1 : -1;
-  route = index >= 0 && index < levels.length ? "play" : hash === "new" ? "map" : ["map", "lab", "about"].includes(hash) ? hash : "home";
+  route = index >= 0 && index < levels.length ? "play"
+    : ["new", "challenge"].includes(hash) ? "map"
+    : ["map", "lab", "about", ...modeList.map((mode) => mode.id)].includes(hash) ? hash : "home";
+  arcade.enter(route);
   if (route === "play") initPlay(index);
-  main.dataset.screen = route;
-  main.innerHTML = ({ home, map: mapPage, lab: labPage, play: levelPage, about: aboutPage })[route]();
+  const basic = ({ home, map: () => mapPage(hash), lab: labPage, play: levelPage, about: aboutPage })[route];
+  main.dataset.screen = basic ? route : "arcade";
+  main.innerHTML = basic ? basic() : arcade.page();
   if (route === "play") buildBoard();
   if (route === "lab") updateLab();
   document.querySelectorAll("[data-nav]").forEach((link) => {
     if (link.dataset.nav === route) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
   });
-  if (hash === "new") {
-    const section = document.getElementById("new-islands");
-    if (moveFocus) section.focus({ preventScroll: true });
-    section.scrollIntoView();
-  } else if (moveFocus) {
+  if (moveFocus) {
     document.getElementById("view-title").focus({ preventScroll: true });
     window.scrollTo(0, 0);
   }
@@ -538,9 +566,15 @@ const actions = {
 };
 
 document.addEventListener("click", (event) => {
+  const arcadeButton = event.target.closest("[data-arc]");
+  if (arcadeButton) { arcade.click(arcadeButton); return; }
   const button = event.target.closest("[data-action]");
   if (button) actions[button.dataset.action](button);
 });
+main.addEventListener("change", (event) => {
+  if (event.target.matches("[data-arc-round]")) arcade.select(event.target.value);
+});
+main.addEventListener("keydown", arcade.moveCursor);
 document.querySelector(".skip").addEventListener("click", (event) => {
   event.preventDefault();
   main.focus();

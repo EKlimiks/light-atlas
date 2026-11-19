@@ -1,9 +1,9 @@
 "use strict";
 
 const prefix = "light-atlas-";
-const version = prefix + "2";
+const version = prefix + "3";
 const appFiles = [
-  "./index.html", "./style.css?v=2", "./levels.js?v=2", "./optics.js?v=2", "./game.js?v=2",
+  "./index.html", "./style.css?v=3", "./levels.js?v=3", "./optics.js?v=3", "./arcade.js?v=3", "./game.js?v=3",
   "./manifest.webmanifest", "./art/observatory.webp", "./art/icon-192.png", "./art/icon-512.png", "./art/exo-2.ttf",
 ];
 const cachedUrls = new Set(appFiles.map((file) => new URL(file, self.registration.scope).href));
