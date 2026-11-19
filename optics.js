@@ -15,22 +15,28 @@
     { name: "Белый", tone: "#fff6db", symbol: "Б" },
   ];
 
-  function trace(level, choices) {
+  function propagate(level, choices, openGates) {
     const { size, tiles, controls } = level;
     const values = new Map(controls.map((index, i) => [index, choices[i]]));
+    const movable = new Map();
+    for (const [index, value] of values) {
+      const tile = tiles[index];
+      if (tile.type === "dock") movable.set(tile.docks[value], tile.angle);
+    }
     const arrivals = new Map();
     const visited = new Set();
     const used = new Set();
+    const triggered = new Set();
     const segments = new Map();
     const rays = [];
     tiles.forEach((tile, i) => {
-      if (tile.type === "source") rays.push([i, tile.direction, tile.mask]);
+      if (tile.type === "source" || tile.type === "emitter") rays.push([i, values.get(i) ?? tile.direction, tile.mask, -1]);
       if (tile.type === "target") arrivals.set(i, 0);
     });
 
     for (let r = 0; r < rays.length; r++) {
-      const [from, direction, mask] = rays[r];
-      const key = `${from}/${direction}/${mask}`;
+      const [from, direction, mask, polar] = rays[r];
+      const key = `${from}/${direction}/${mask}/${polar}`;
       if (visited.has(key)) continue;
       visited.add(key);
       const tile = tiles[from];
@@ -40,7 +46,8 @@
       const outside = x < 0 || x >= size || y < 0 || y >= size;
       const next = outside ? -1 : x + y * size;
       const receiver = tiles[next];
-      const stops = receiver?.type === "rock" || receiver?.type === "source";
+      const stops = receiver?.type === "rock" || receiver?.type === "source" || receiver?.type === "emitter" ||
+        (receiver?.type === "gate" && !openGates.has(receiver.group));
       const length = outside ? .5 : stops ? .58 : 1;
       const edge = outside || stops
         ? `${from}/${direction}/end`
@@ -50,45 +57,79 @@
       else segments.set(edge, { x: tile.x, y: tile.y, dx: dx * length, dy: dy * length, mask });
       if (outside || stops) continue;
 
-      if (values.has(next)) used.add(next);
+      const value = values.get(next) ?? receiver.value;
+      const send = (dir = direction, color = mask, axis = polar) => {
+        if (color) rays.push([next, dir, color, axis]);
+      };
+      if (values.has(next) || movable.has(next)) used.add(next);
       switch (receiver.type) {
         case "target":
           arrivals.set(next, arrivals.get(next) | mask);
           break;
         case "mirror":
-          rays.push([next, reflect[values.get(next)][direction], mask]);
+          send(reflect[value][direction]);
           break;
         case "splitter":
-          rays.push([next, direction, mask], [next, reflect[values.get(next)][direction], mask]);
+          send();
+          send(reflect[value][direction]);
           break;
-        case "filter": {
-          const outgoing = mask & colorValues[values.get(next)];
-          if (outgoing) rays.push([next, direction, outgoing]);
+        case "filter":
+          send(direction, mask & colorValues[value]);
           break;
-        }
+        case "spectral":
+          send(direction, mask & ~receiver.mask);
+          send(reflect[value][direction], mask & receiver.mask);
+          break;
+        case "dock":
+          send(movable.has(next) ? reflect[movable.get(next)][direction] : direction);
+          break;
+        case "polar":
+          if (polar === -1 || polar === value) send(direction, mask, value);
+          break;
+        case "sensor":
+          triggered.add(receiver.group);
+          break;
         default:
-          rays.push([next, direction, mask]);
+          send();
       }
     }
 
     const lit = [...arrivals].filter(([i, mask]) => mask === tiles[i].mask).length;
-    return { segments: [...segments.values()], expected: arrivals.size, lit, won: lit === arrivals.size, arrivals, used };
+    return { segments: [...segments.values()], expected: arrivals.size, lit, won: lit === arrivals.size, arrivals, used, triggered, movable };
+  }
+
+  function trace(level, choices) {
+    const openGates = new Set();
+    // A sensor stays on while following this beam network. Opening a gate only
+    // adds paths, so each repeat discovers a new sensor or finishes.
+    for (;;) {
+      const pass = propagate(level, choices, openGates);
+      const discovered = [...pass.triggered].filter((gate) => !openGates.has(gate));
+      if (!discovered.length) return { ...pass, openGates };
+      discovered.forEach((gate) => openGates.add(gate));
+    }
   }
 
   function solve(level, choices) {
     const initial = choices.slice();
-    const queue = [{ choices: initial, first: null, distance: 0 }];
+    const queue = [{ choices: initial, first: null, firstValue: null, distance: 0 }];
     const visited = new Set([initial.join("")]);
     for (let index = 0; index < queue.length; index++) {
       const current = queue[index];
       if (trace(level, current.choices).won) return current;
       level.controls.forEach((cell, i) => {
-        const next = current.choices.slice();
-        next[i] = (next[i] + 1) % level.tiles[cell].options;
-        const key = next.join("");
-        if (visited.has(key)) return;
-        visited.add(key);
-        queue.push({ choices: next, first: current.first ?? i, distance: current.distance + 1 });
+        const tile = level.tiles[cell];
+        const values = tile.docks
+          ? tile.docks.map((_, value) => value).filter(value => value !== current.choices[i])
+          : [(current.choices[i] + 1) % tile.options];
+        for (const value of values) {
+          const next = current.choices.slice();
+          next[i] = value;
+          const key = next.join("");
+          if (visited.has(key)) continue;
+          visited.add(key);
+          queue.push({ choices: next, first: current.first ?? i, firstValue: current.firstValue ?? value, distance: current.distance + 1 });
+        }
       });
     }
     return null;

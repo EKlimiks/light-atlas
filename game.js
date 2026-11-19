@@ -41,6 +41,8 @@ let resize;
 let frame = 0;
 let winTimer = 0;
 let hinted = null;
+let hintDestination = null;
+let selectedDock = null;
 let labMask = 0;
 let installPrompt;
 let canvasTime = 0;
@@ -86,17 +88,21 @@ function home() {
       <h1 id="view-title" tabindex="-1">Световой<br><em>атлас</em></h1>
       <p class="home-story">Маяки архипелага погасли. Поворачивай зеркала, смешивай свет и зажги их снова.</p>
       <div class="actions"><a class="action primary" href="#${count === levels.length ? "map" : `play-${last + 1}`}">${count === levels.length ? "Карта маяков" : count || data.drafts[last]?.history.length ? "Продолжить экспедицию" : "Зажечь первый маяк"} <span aria-hidden="true">↗</span></a>${count === levels.length ? "" : '<a class="action quiet" href="#map">Карта</a>'}</div>
-      <div class="home-count"><span class="little-light" aria-hidden="true"></span> ${count ? `Зажжено ${count} из ${levels.length}` : `${levels.length} головоломок · 4 острова`}</div>
+      <div class="home-count"><span class="little-light" aria-hidden="true"></span> ${count ? `Зажжено ${count} из ${levels.length}` : `${levels.length} головоломок · ${chapters.length} глав`}</div>
+      <a class="new-route" href="#new">Новый маршрут: ещё пять глав</a>
     </div>
   </section>`;
 }
 
 function mapPage() {
-  return `${heading("Карта маяков", "Выбери любой остров. Начни с берега, если впервые играешь.", `Зажжено ${completionCount()} из ${levels.length}`)}
-    <div class="chapters">${chapters.map((chapter, chapterIndex) => `<section class="chapter ${chapter.color}">
+  const sections = chapters.map((chapter, chapterIndex) => `<section class="chapter ${chapter.color}">
       <div class="chapter-head"><span class="chapter-mark" aria-hidden="true">${chapter.mark}</span><div><h2>${chapter.name}</h2><p>${chapter.lesson}</p></div></div>
       <ol>${levels.map((entry, i) => entry.chapter === chapterIndex ? `<li><a href="#play-${i + 1}" class="${data.records[i] ? "cleared" : ""}"><span class="map-number">${String(i + 1).padStart(2, "0")}</span><span>${entry.title}</span>${data.records[i] ? stars(data.records[i].stars) : '<span class="new-level" aria-hidden="true">·</span>'}</a></li>` : "").join("")}</ol>
-    </section>`).join("")}</div>`;
+    </section>`);
+  return `${heading("Карта маяков", "Начни с берега или выбери любую главу.", `Зажжено ${completionCount()} из ${levels.length}`)}
+    <div class="chapters">${sections.slice(0, 4).join("")}</div>
+    <section class="new-chapters"><div class="map-section"><h2 id="new-islands" tabindex="-1">Новый маршрут</h2><p>Пять глав с новыми приборами.</p></div>
+    <div class="chapters">${sections.slice(4).join("")}</div></section>`;
 }
 
 function labPage() {
@@ -114,13 +120,14 @@ function labPage() {
 function aboutPage() {
   return `${heading("Об игре", "«Световой атлас» — познавательная игра о свете для телефона и компьютера.")}
     <div class="about">
-      <h2>Как играть</h2><p>Коснись зеркала или делителя, чтобы повернуть деталь. Коснись фильтра, чтобы сменить цвет. Зажги все линзы светом нужного цвета. Буква на линзе подсказывает цвет.</p>
+      <h2>Как играть</h2><p>Коснись зеркала или делителя, чтобы повернуть деталь. Коснись фильтра, чтобы сменить цвет. Зажги все линзы светом нужного цвета. На новом маршруте можно переносить зеркала, поворачивать фонари, настраивать поляризаторы и открывать заслонки светом.</p>
       <h2>Игра без интернета</h2><p>После первой загрузки игра сохраняет файлы в браузере. На телефоне можно добавить её на главный экран через меню браузера. В Safari это «Поделиться», затем «На экран Домой». Прогресс хранится на устройстве.</p>
       <h2>Как участвовал ИИ</h2><p>Codex помог разработать игровой процесс, уровни и код. Иллюстрация обсерватории создана в ImageGen.</p>
       <h2>Материалы по оптике</h2><ul>
         <li><a href="https://openstax.org/books/physics/pages/16-1-reflection">OpenStax. Отражение света</a></li>
         <li><a href="https://annex.exploratorium.edu/xref/exhibits/distilled_light.html">Exploratorium. Разделение и смешение цветов</a></li>
         <li><a href="https://www.jpl.nasa.gov/edu/resources/lesson-plan/the-science-of-color/">NASA JPL. Цвет и фильтры</a></li>
+        <li><a href="https://openstax.org/books/university-physics-volume-3/pages/1-7-polarization">OpenStax. Поляризация</a></li>
       </ul>
     </div>`;
 }
@@ -135,6 +142,8 @@ function initPlay(index) {
     ? { choices: previous.choices.slice(), history: Array.isArray(previous.history) ? previous.history.slice() : [], hints: Number(previous.hints) || 0 }
     : { choices: level.initial.slice(), history: [], hints: 0 };
   hinted = null;
+  hintDestination = null;
+  selectedDock = null;
   finishing = false;
   award = 0;
   data.last = index;
@@ -165,6 +174,7 @@ function levelPage() {
       <aside class="level-aside">
         <div class="counter-line"><p id="counter"></p><p id="moves"></p></div>
         <div id="target-list" class="targets" aria-label="Линзы"></div>
+        <p class="mechanism-line" id="mechanism-line" hidden></p>
         <p class="hint-line" id="hint-line" hidden></p>
         <button class="action primary next" data-action="show-win" type="button" id="level-result" hidden>Продолжить</button>
         <details class="lesson"><summary>Как это работает</summary><p>${chapter.fact}</p></details>
@@ -174,10 +184,14 @@ function levelPage() {
 }
 
 function tileSymbol(tile) {
-  if (tile.type === "source") return `<span class="source-piece"><span class="glyph">${arrows[tile.direction]}</span></span>`;
+  if (tile.type === "source" || tile.type === "emitter") return `<span class="source-piece"><span class="glyph">${arrows[tile.direction ?? tile.value]}</span></span>`;
   if (tile.type === "target") return `<span class="target-piece"><span class="glyph">${colors[tile.mask].symbol}</span></span>`;
   if (tile.type === "rock") return '<span class="rock-piece"></span>';
   if (tile.type === "mirror" || tile.type === "splitter") return `<span class="optic"><span class="plate"></span>${tile.type === "splitter" ? '<span class="split-mark">+</span>' : ""}</span>`;
+  if (tile.type === "spectral") return `<span class="optic"><span class="plate"></span><span class="spectrum-mark">${colors[tile.mask].symbol}</span></span>`;
+  if (tile.type === "polar") return '<span class="polar-piece"><span class="polar-axis"></span></span>';
+  if (tile.type === "dock") return `<span class="dock-piece"><span class="plate"></span><span class="dock-letter">${tile.group}</span></span>`;
+  if (tile.type === "sensor" || tile.type === "gate") return `<span class="lock-piece"><span class="lock-bars"></span><span class="glyph">${tile.group}</span></span>`;
   if (tile.type === "filter") return '<span class="filter-piece"><span class="glyph"></span></span>';
   return "";
 }
@@ -186,16 +200,18 @@ function buildBoard() {
   const grid = document.getElementById("board-grid");
   const fragment = document.createDocumentFragment();
   cells = level.tiles.map((tile, index) => {
-    const cell = document.createElement(tile.options ? "button" : "div");
+    const interactive = tile.options || tile.type === "dock";
+    const cell = document.createElement(interactive ? "button" : "div");
     cell.className = `cell cell-${tile.type}`;
-    if (tile.options) {
+    if (interactive) {
       cell.type = "button";
-      cell.dataset.action = "rotate";
+      cell.dataset.action = tile.type === "dock" ? "dock" : "rotate";
       cell.dataset.cell = index;
     } else {
       cell.setAttribute("aria-hidden", "true");
     }
     if (tile.mask) cell.style.setProperty("--ray", colors[tile.mask].tone);
+    if (tile.type === "polar") cell.style.setProperty("--axis", tile.value ? "90deg" : "0deg");
     cell.innerHTML = tileSymbol(tile);
     fragment.append(cell);
     return cell;
@@ -268,20 +284,44 @@ function startMotion() {
 function updateBoard() {
   result = trace(level, play.choices);
   const firstTap = levelIndex === 0 && play.history.length === 0 ? level.controls[0] : null;
-  level.controls.forEach((index, i) => {
-    const tile = level.tiles[index];
+  const values = new Map(level.controls.map((index, i) => [index, play.choices[i]]));
+  const gates = [];
+  level.tiles.forEach((tile, index) => {
     const cell = cells[index];
-    const value = play.choices[i];
-    const place = `ряд ${tile.y + 1}, столбец ${tile.x + 1}`;
+    if (tile.type === "gate" || tile.type === "sensor") {
+      const open = result.openGates.has(tile.group);
+      cell.classList.toggle("active-lock", open);
+      if (tile.type === "gate") gates.push(`Заслонка ${tile.group} ${open ? "открыта" : "закрыта"}`);
+      return;
+    }
+    if (!tile.options && tile.type !== "dock") return;
+    const value = values.get(index);
+    const place = cellPlace(tile);
     cell.classList.toggle("coach", !result.won && (index === hinted || index === firstTap));
+    cell.classList.toggle("coach-dest", !result.won && index === hintDestination);
     cell.classList.toggle("in-path", result.used.has(index));
-    if (tile.type === "filter") {
+    if (tile.type === "dock") {
+      const occupied = result.movable.has(index);
+      const chosen = tile.group === selectedDock;
+      cell.classList.toggle("occupied", occupied);
+      cell.classList.toggle("dock-selected", occupied && chosen);
+      cell.classList.toggle("dock-ready", !occupied && chosen);
+      cell.style.setProperty("--angle", result.movable.get(index) ? "45deg" : "-45deg");
+      cell.setAttribute("aria-pressed", occupied && chosen);
+      cell.setAttribute("aria-label", `${occupied ? "Переносное зеркало" : "Пустое гнездо"} ${tile.group}, ${place}`);
+    } else if (tile.type === "filter") {
       const color = colors[colorValues[value]];
       cell.style.setProperty("--ray", color.tone);
       cell.querySelector(".glyph").textContent = color.symbol;
       cell.setAttribute("aria-label", `Фильтр: ${color.name}, ${place}. Сменить цвет`);
+    } else if (tile.type === "emitter") {
+      cell.querySelector(".glyph").textContent = arrows[value];
+      cell.setAttribute("aria-label", `Фонарь: ${colors[tile.mask].name}, светит ${directionNames[value]}, ${place}. Повернуть`);
+    } else if (tile.type === "polar") {
+      cell.style.setProperty("--axis", value ? "90deg" : "0deg");
+      cell.setAttribute("aria-label", `Поляризатор: полосы ${value ? "вертикальные" : "горизонтальные"}, ${place}. Повернуть`);
     } else {
-      const label = tile.type === "mirror" ? "Зеркало" : "Делитель";
+      const label = tile.type === "mirror" ? "Зеркало" : tile.type === "spectral" ? `Цветное зеркало: ${colors[tile.mask].name}` : "Делитель";
       cell.style.setProperty("--angle", value ? "45deg" : "-45deg");
       cell.setAttribute("aria-label", `${label} ${value ? "наклонено вниз вправо" : "наклонено вверх вправо"}, ${place}. Повернуть`);
     }
@@ -298,6 +338,9 @@ function updateBoard() {
     list.push(`<span class="target-status" style="--ray:${colors[expected].tone}"><b aria-hidden="true">${good ? "✓" : colors[expected].symbol}</b><span>${colors[expected].name}${arrival && !good ? ` · попал ${colors[arrival].name.toLowerCase()}` : ""}${good ? " · горит" : ""}</span></span>`);
   }
   document.getElementById("target-list").innerHTML = list.join("");
+  const mechanic = document.getElementById("mechanism-line");
+  mechanic.textContent = selectedDock ? `Выбрано зеркало ${selectedDock}. Коснись подсвеченного гнезда.` : gates.join(" · ");
+  mechanic.hidden = !mechanic.textContent;
   document.getElementById("counter").textContent = `Линзы ${result.lit}/${result.expected}`;
   document.getElementById("moves").textContent = `Ходы ${play.history.length}`;
   document.getElementById("undo").disabled = !play.history.length;
@@ -305,6 +348,10 @@ function updateBoard() {
   document.getElementById("hint").disabled = result.won;
   document.getElementById("level-result").hidden = !result.won;
   drawRays(0);
+}
+
+function cellPlace(tile) {
+  return `ряд ${tile.y + 1}, столбец ${tile.x + 1}`;
 }
 
 function updateLab() {
@@ -357,27 +404,54 @@ function changeTile(index) {
   if (finishing) return;
   const i = level.controls.indexOf(index);
   if (i < 0) return;
+  changeChoice(i, (play.choices[i] + 1) % level.tiles[index].options);
+}
+
+function changeChoice(i, value) {
   const wasWon = result.won;
-  play.history.push(i);
-  play.choices[i] = (play.choices[i] + 1) % level.tiles[index].options;
+  play.history.push([i, play.choices[i]]);
+  play.choices[i] = value;
+  selectedDock = null;
   clearHint();
   updateBoard();
   if (result.won && !wasWon) recordWin();
   else if (!result.won) persistPuzzle();
 }
 
+function selectDock(index) {
+  if (finishing) return;
+  const { group } = level.tiles[index];
+  const i = level.controls.findIndex((anchor) => level.tiles[anchor].docks && level.tiles[anchor].group === group);
+  const { docks } = level.tiles[level.controls[i]];
+  const old = docks[play.choices[i]];
+  if (index === old) {
+    selectedDock = selectedDock === group ? null : group;
+    updateBoard();
+    say(selectedDock ? `Зеркало ${group} выбрано. Коснись пустого гнезда с такой же буквой.` : "Выбор зеркала отменён.");
+  } else if (selectedDock === group) {
+    changeChoice(i, docks.indexOf(index));
+    if (!result.won) say(`Зеркало ${group} перенесено: ${cellPlace(level.tiles[index])}.`);
+  } else {
+    cells[old].focus();
+    say(`Сначала коснись зеркала ${group}, затем этого гнезда.`);
+  }
+}
+
 function clearHint() {
   hinted = null;
+  hintDestination = null;
   document.getElementById("hint-line").hidden = true;
 }
 
 function undo() {
   clearTimeout(winTimer);
   finishing = false;
-  const i = play.history.pop();
-  if (i === undefined) return;
+  const move = play.history.pop();
+  if (move === undefined) return;
+  const [i, previous] = Array.isArray(move) ? move : [move];
   const options = level.tiles[level.controls[i]].options;
-  play.choices[i] = (play.choices[i] + options - 1) % options;
+  play.choices[i] = previous ?? (play.choices[i] + options - 1) % options;
+  selectedDock = null;
   clearHint();
   updateBoard();
   if (result.won) recordWin(true);
@@ -389,6 +463,7 @@ function reset() {
   clearTimeout(winTimer);
   finishing = false;
   play = { choices: level.initial.slice(), history: [], hints: 0 };
+  selectedDock = null;
   clearHint();
   updateBoard();
   persistPuzzle();
@@ -401,14 +476,20 @@ function hint() {
   if (path?.first == null) return;
   const index = level.controls[path.first];
   const tile = level.tiles[index];
-  if (hinted !== index) play.hints++;
-  hinted = index;
+  const origin = tile.docks ? tile.docks[play.choices[path.first]] : index;
+  const destination = tile.docks ? tile.docks[path.firstValue] : null;
+  if (hinted !== origin || hintDestination !== destination) play.hints++;
+  hinted = origin;
+  hintDestination = destination;
+  selectedDock = null;
   const line = document.getElementById("hint-line");
-  line.textContent = `Коснись подсвеченной детали: ряд ${tile.y + 1}, столбец ${tile.x + 1}.`;
+  line.textContent = tile.docks
+    ? `Коснись зеркала ${tile.group}, затем гнезда: ${cellPlace(level.tiles[destination])}.`
+    : `Коснись подсвеченной детали: ${cellPlace(tile)}.`;
   line.hidden = false;
   updateBoard();
   persistPuzzle();
-  cells[index].focus();
+  cells[origin].focus();
   say(line.textContent);
 }
 
@@ -421,7 +502,7 @@ function render(moveFocus = true) {
   const hash = location.hash.slice(1);
   const choice = /^play-(\d+)$/.exec(hash);
   const index = choice ? Number(choice[1]) - 1 : -1;
-  route = index >= 0 && index < levels.length ? "play" : ["map", "lab", "about"].includes(hash) ? hash : "home";
+  route = index >= 0 && index < levels.length ? "play" : hash === "new" ? "map" : ["map", "lab", "about"].includes(hash) ? hash : "home";
   if (route === "play") initPlay(index);
   main.dataset.screen = route;
   main.innerHTML = ({ home, map: mapPage, lab: labPage, play: levelPage, about: aboutPage })[route]();
@@ -431,7 +512,11 @@ function render(moveFocus = true) {
     if (link.dataset.nav === route) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
   });
-  if (moveFocus) {
+  if (hash === "new") {
+    const section = document.getElementById("new-islands");
+    if (moveFocus) section.focus({ preventScroll: true });
+    section.scrollIntoView();
+  } else if (moveFocus) {
     document.getElementById("view-title").focus({ preventScroll: true });
     window.scrollTo(0, 0);
   }
@@ -439,6 +524,7 @@ function render(moveFocus = true) {
 
 const actions = {
   rotate: (button) => changeTile(Number(button.dataset.cell)),
+  dock: (button) => selectDock(Number(button.dataset.cell)),
   undo, reset, hint,
   "show-win": showWin,
   inspect() {
